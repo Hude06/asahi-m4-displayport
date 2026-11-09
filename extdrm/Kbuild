@@ -1,0 +1,2 @@
+obj-m += j713_extdrm.o
+ccflags-y += -I$(src) -I$(src)/../dcpext2

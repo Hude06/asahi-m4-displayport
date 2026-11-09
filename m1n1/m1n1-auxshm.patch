@@ -1,0 +1,29 @@
+--- jobn/bootloader-air-knownbase-stage2/src/kboot_atc.c	2026-08-30 04:00:42.000000000 -0700
++++ jobx/bootloader-air-knownbase-stage2/src/kboot_atc.c	2026-11-07 14:58:24.950480387 -0800
+@@ -115,7 +115,7 @@
+ 
+     {"tunable_AUSCMN_DIG", "apple,tunable-common-b", 0x800, 0x200, true},
+     {"tunable_AUSPLL_CORE", "apple,tunable-common-b", 0x2200, 0x4000, true},
+-    //{"tunable_AUX_SHM", "apple,tunable-common-b", 0x0, 0x0, true}, // TODO: offset?
++    //{"tunable_AUX_SHM", "apple,tunable-common-b", 0x0, 0x0, true}, // see aux_shm below
+     {"tunable_AUX_TOP", "apple,tunable-common-b", 0x16000, 0x4000, true},
+     {"tunable_AUSCMN_SHM", "apple,tunable-common-b", 0xa00, 0x200, true},
+     {"tunable_CLKMON_CFG", "apple,tunable-common-b", 0x2600, 0x100, false},
+@@ -468,6 +468,17 @@
+             goto cleanup;
+     }
+ 
++    /*
++     * J713 experiment: macOS AppleT8132TypeCPhy block 26 (AUX_SHM) = core + 0x16400.
++     * Copied to a separate property that upstream Linux ignores; failures are non-fatal.
++     */
++    if (adt_is_compatible_at(adt, adt_node, "atc-phy,t8132", 0)) {
++        static const struct adt_tunable_info aux_shm = {
++            "tunable_AUX_SHM", "apple,tunable-aux-shm", 0x16400, 0xc00, false};
++        if (dt_append_atc_tunable(dt, adt_node, fdt_node, &aux_shm))
++            printf("kboot: J713 AUX_SHM tunable copy failed for %s (ignored)\n", adt_path);
++    }
++
+     if (adt_is_compatible_at(adt, adt_node, "atc-phy,t8122", 0) ||
+         adt_is_compatible_at(adt, adt_node, "atc-phy,t8132", 0)) {
+         static const char *fdt_names[] = {"apple,tunable-lane0-cio", "apple,tunable-lane1-cio"};

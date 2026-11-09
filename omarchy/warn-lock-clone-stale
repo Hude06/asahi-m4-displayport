@@ -1,0 +1,13 @@
+#!/bin/bash
+# post-update hook: ~/.config/omarchy/plugins/<user>.lock is a CLONE of the packaged omarchy.lock (lock screen + PAM/fingerprint code).
+# It carries one local change (blank-displays, so Hyprland doesn't crash with the USB-C external display on wake) and therefore
+# does NOT receive upstream lock fixes. Warn when the packaged plugin differs from the copy the clone was taken from.
+BASE=${LOCK_BASELINE:-$HOME/.local/state/omarchy-local/lock-baseline}
+SRC=${LOCK_PACKAGED:-/usr/share/omarchy/shell/plugins/lock}
+
+if ! diff -rq -x SHA256SUMS -x omarchy-version.txt "$BASE" "$SRC" >/dev/null 2>&1; then
+  msg="The packaged lock plugin changed since <user>.lock was cloned ($(cat "$BASE/omarchy-version.txt" 2>/dev/null)). Your clone has not picked it up. Diff: diff -r $BASE $SRC"
+  echo "WARNING: $msg"
+  omarchy-notification-send -g 󰌾 "Lock plugin changed upstream" "$msg" 2>/dev/null || true
+fi
+exit 0

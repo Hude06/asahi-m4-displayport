@@ -1,0 +1,4 @@
+-- ~/.config/hypr/monitors.lua : rule for the USB-C external display exposed by j713_extdrm.
+-- There is no EDID, so the output is addressed by connector name (DP-1). 1440p60 is the most HBR2 x2 carries.
+-- transform: 0 normal, 1 = 90 degrees (portrait), 3 = 270 degrees.
+hl.monitor({ output = "DP-1", mode = "2560x1440@60", position = "auto", scale = 1 })

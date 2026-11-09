@@ -1,0 +1,3 @@
+# Kernel build tree used by the module Makefiles/scripts, e.g.:  make $(cat ../KMAKE) M=$PWD modules
+# Copy to KMAKE and point -C at a configured build tree of the kernel you boot (these modules are built out-of-tree).
+-C /path/to/kernel-build-tree LLVM=1

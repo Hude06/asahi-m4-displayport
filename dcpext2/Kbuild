@@ -1,0 +1,2 @@
+obj-m += j713_dcpext_probe2.o
+j713_dcpext_probe2-y := client.o afk.o

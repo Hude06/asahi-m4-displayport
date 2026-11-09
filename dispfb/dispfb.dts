@@ -1,0 +1,33 @@
+/*
+ * Runtime overlay for J713 external-display scanout (no boot-chain change).
+ * Adds, under /soc:
+ *   - dart-dispext0 (ADT /arm-io/dart-dispext0: 0x2_86300000/0xc000, irq 0x2ee shared with dart-dcpext0, sid 0 = display, 0x10 = piodma,
+ *     vm-base 0x100_0000_0000 size 0x10_0000_0000), modelled on the live iommu@286340000 (dart-dcpext0) node;
+ *     it is LOCKED by iBoot with a valid empty L1 for sid 0 (dispwalk-1056.txt), apple-dart handles that like dart-dcpext0.
+ *   - a client node bound to sid 0 only (a locked DART supports one stream).
+ * Numeric phandles are the live-DT values: 0x0d = aic (interrupt-parent), 0x180 = dispext0_cpu (PMGR domain used by dart-dcpext0).
+ */
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/soc";
+		__overlay__ {
+			dart_dispext0: iommu@286300000 {
+				compatible = "apple,t8132-dart", "apple,t8110-dart";
+				reg = <0x02 0x86300000 0x00 0xc000>;
+				interrupt-parent = <0x0d>;
+				interrupts = <0x00 0x2ee 0x04>;
+				power-domains = <0x180>;
+				apple,dma-range = <0x100 0x00 0x10 0x00>;
+				#iommu-cells = <1>;
+			};
+
+			dispfb {
+				compatible = "omarchy,j713-dispfb";
+				iommus = <&dart_dispext0 0>;
+			};
+		};
+	};
+};

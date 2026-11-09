@@ -1,0 +1,54 @@
+#!/bin/bash
+# Local replacement for the lock screen's stock blank step (`omarchy-brightness-keyboard off; omarchy-brightness-display off`).
+#
+# WHY: on the M4 Air, `omarchy-brightness-display off` = DPMS off on ALL monitors. With the USB-C external display attached
+# (DRM device j713-extdrm, /dev/dri/card2, a secondary GPU for Aquamarine) that leaves card2 with no enabled output, so
+# Aquamarine tears down its secondary renderer ("Deinitializing secondary renderer on /dev/dri/card2, no enabled outputs").
+# On wake the renderer is re-created and Mesa segfaults in eglCreateContext -> Hyprland dies and takes the whole session with it
+# (Hyprland 0.56.2 SEGV observed on a J713 with the external display attached; see FINDINGS.md).
+# So: blank every enabled monitor EXCEPT outputs of the j713-extdrm device. With no such output attached this is the stock behaviour.
+#
+# Remove this workaround (and the cloned lock plugin: `omarchy plugin enable omarchy.lock`) once Aquamarine/Mesa no longer crash on
+# secondary-renderer re-init. See FINDINGS.md.
+
+set -u
+SYS_DRM=${J713_SYSFS_DRM:-/sys/class/drm}
+
+omarchy-brightness-keyboard off
+
+# 0 if monitor $1 is an output of the j713-extdrm DRM device (connector dir is cardN-<name>, cardN/device -> .../j713-extdrm)
+is_extdrm_output() {
+  local conn card dev
+  for conn in "$SYS_DRM"/card[0-9]*-"$1"; do
+    [[ -e $conn ]] || continue
+    card=${conn##*/}
+    card=${card%%-*}
+    dev=$(readlink -f "$SYS_DRM/$card/device" 2>/dev/null) || continue
+    [[ ${dev##*/} == j713-extdrm ]] && return 0
+  done
+  return 1
+}
+
+mapfile -t monitors < <(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.disabled == false) | .name')
+
+blank=()
+kept=0
+for m in "${monitors[@]}"; do
+  # names end up inside a Lua dispatch string: same guard as omarchy-hyprland-monitor-clamshell
+  [[ $m =~ ^[A-Za-z0-9._-]+$ ]] || continue
+  if is_extdrm_output "$m"; then
+    kept=1
+  else
+    blank+=("$m")
+  fi
+done
+
+if (( ! kept )); then
+  # no external-display output: exactly what the stock lock does
+  exec omarchy-brightness-display off
+fi
+
+for m in "${blank[@]}"; do
+  hyprctl dispatch "hl.dsp.dpms({ action = \"disable\", monitor = \"$m\" })" >/dev/null 2>&1 || true
+done
+exit 0

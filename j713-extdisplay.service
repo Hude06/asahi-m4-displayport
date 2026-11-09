@@ -1,0 +1,18 @@
+[Unit]
+Description=J713 USB-C external display bring-up (dcpext0 link + DRM driver)
+Documentation=https://github.com/Hude06/asahi-m4-displayport
+# the dcpext0 firmware is reserved by m1n1 on the 'dcpext' stage2 boots only
+ConditionPathExists=/proc/device-tree/soc/dcpext@286e00000/omarchy,dcpext-firmware-reserved
+After=systemd-udevd.service systemd-modules-load.service local-fs.target sys-kernel-debug.mount
+Wants=sys-kernel-debug.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@REPO@/extdisplay-up.sh
+TimeoutStartSec=240
+# a failure must never block the boot
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target

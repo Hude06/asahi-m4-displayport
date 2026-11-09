@@ -1,0 +1,13 @@
+--- a/shell/plugins/lock/Service.qml
++++ b/shell/plugins/lock/Service.qml
+@@ -408,7 +408,9 @@
+ 
+   Process {
+     id: blankProcess
+-    command: ["bash", "-c", "omarchy-brightness-keyboard off; omarchy-brightness-display off"]
++    // LOCAL CHANGE (only difference from omarchy.lock): stock was `omarchy-brightness-keyboard off; omarchy-brightness-display off`.
++    // blank-displays skips the USB-C external display (j713-extdrm) because DPMS-off on every output crashes Hyprland on wake.
++    command: ["bash", "-c", "exec \"$HOME/.config/omarchy/plugins/<user>.lock/blank-displays\""]
+   }
+ 
+   Timer {

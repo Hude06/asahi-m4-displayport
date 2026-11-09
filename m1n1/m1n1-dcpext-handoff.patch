@@ -1,0 +1,138 @@
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -2165,6 +2165,126 @@
+            state.nruns, vm_base + allocator_start);
+     return 0;
+ }
++
++/* J713 external DCP firmware handoff (experimental, never fatal).
++ *
++ * iBoot preloads each dcpextN firmware into a carveout but, on a laptop, never
++ * starts the coprocessor. This reserves exactly those segments for Linux and
++ * records their stream-23 IOVAs so a cold-boot client can map them. Every ADT
++ * input is validated before the FDT is touched; any failure skips that
++ * dcpext, records why in /chosen, and the boot continues unchanged. */
++#define T8132_DCPEXT_MAX_SEGS 16
++
++static void dt_t8132_dcpext_status(const char *alias, const char *status)
++{
++    char prop[48];
++    int chosen = fdt_path_offset(dt, "/chosen");
++
++    printf("FDT: %s handoff: %s\n", alias, status);
++    snprintf(prop, sizeof(prop), "omarchy,%s-handoff", alias);
++    if (chosen >= 0)
++        fdt_setprop_string(dt, chosen, prop, status);
++}
++
++static void dt_set_t8132_dcpext_one(int index)
++{
++    char alias[16], nub_path[64], dart_path[48], name[64];
++
++    snprintf(alias, sizeof(alias), "dcpext%d", index);
++    snprintf(nub_path, sizeof(nub_path), "/arm-io/%s/iop-%s-nub", alias, alias);
++    snprintf(dart_path, sizeof(dart_path), "/arm-io/dart-%s", alias);
++
++    int dev = fdt_path_offset(dt, alias);
++    if (dev < 0)
++        return; /* No client in this DT: nothing to hand over, record nothing. */
++    if (fdt_node_check_compatible(dt, dev, "omarchy,j713-dcpext-probe")) {
++        dt_t8132_dcpext_status(alias, "skipped: unexpected client");
++        return;
++    }
++    int len;
++    const fdt32_t *iommus = fdt_getprop(dt, dev, "iommus", &len);
++    if (!iommus || len != 8 || fdt32_ld(iommus + 1) != 23) {
++        dt_t8132_dcpext_status(alias, "skipped: client needs exactly stream 23");
++        return;
++    }
++
++    int nub = adt_path_offset(adt, nub_path);
++    int dart_node = adt_path_offset(adt, dart_path);
++    if (nub < 0 || dart_node < 0) {
++        dt_t8132_dcpext_status(alias, "skipped: ADT nub or DART missing");
++        return;
++    }
++    u32 bytes = 0;
++    const struct adt_segment_ranges *segments = adt_getprop(adt, nub, "segment-ranges", &bytes);
++    if (!segments || !bytes) {
++        dt_t8132_dcpext_status(alias, "no-firmware: iBoot did not preload segments");
++        return;
++    }
++    unsigned int count = bytes / sizeof(*segments);
++    if (bytes % sizeof(*segments) || count > T8132_DCPEXT_MAX_SEGS) {
++        dt_t8132_dcpext_status(alias, "skipped: malformed segment-ranges");
++        return;
++    }
++    u64 vm_base;
++    if (ADT_GETPROP(adt, dart_node, "vm-base", &vm_base) != sizeof(vm_base) ||
++        (vm_base & GENMASK(35, 0))) {
++        dt_t8132_dcpext_status(alias, "skipped: unsupported DART aperture");
++        return;
++    }
++
++    /* Validate every segment before any FDT write. */
++    for (unsigned int i = 0; i < count; ++i) {
++        const struct adt_segment_ranges *seg = &segments[i];
++        size_t size = ALIGN_UP((size_t)seg->size, SZ_16K);
++        if (!size || (seg->phys & (SZ_16K - 1)) || seg->phys + size < seg->phys ||
++            (seg->remap & ~GENMASK(35, 0)) != vm_base ||
++            (seg->remap & GENMASK(35, 0)) > BIT(36) - size ||
++            !dt_dcp_carveout_contains(seg->phys, size)) {
++            snprintf(name, sizeof(name), "skipped: segment %u invalid or unreserved", i);
++            dt_t8132_dcpext_status(alias, name);
++            return;
++        }
++    }
++
++    u32 dev_phandle = fdt_get_phandle(dt, dev);
++    if (!dev_phandle) {
++        dt_t8132_dcpext_status(alias, "skipped: client has no phandle");
++        return;
++    }
++    for (unsigned int i = 0; i < count; ++i) {
++        const struct adt_segment_ranges *seg = &segments[i];
++        size_t size = ALIGN_UP((size_t)seg->size, SZ_16K);
++        snprintf(name, sizeof(name), "%s-segment@%lx", alias, seg->phys);
++        int mem = dt_get_or_add_reserved_mem(name, "apple,asc-mem", true, seg->phys, size);
++        if (mem < 0) {
++            dt_t8132_dcpext_status(alias, "failed: reserved-memory write");
++            return;
++        }
++        u32 phandle = fdt_get_phandle(dt, mem);
++        if (dt_device_set_reserved_mem(mem, name, dev_phandle, seg->remap, size) ||
++            dt_device_add_mem_region(alias, phandle, NULL)) {
++            dt_t8132_dcpext_status(alias, "failed: memory-region write");
++            return;
++        }
++    }
++    dev = fdt_path_offset(dt, alias);
++    if (dev < 0 || fdt_setprop_empty(dt, dev, "omarchy,dcpext-firmware-reserved")) {
++        dt_t8132_dcpext_status(alias, "failed: could not mark client");
++        return;
++    }
++    snprintf(name, sizeof(name), "reserved %u segments", count);
++    dt_t8132_dcpext_status(alias, name);
++}
++
++static int dt_set_t8132_display(void)
++{
++    int ret = dt_set_t8132_dcp_handoff();
++    if (ret)
++        return ret;
++    dt_set_t8132_dcpext_one(0);
++    dt_set_t8132_dcpext_one(1);
++    return 0;
++}
+ static int dt_set_display(void)
+ {
+     /* lock dart-disp0 to prevent old software from resetting it */
+@@ -2179,7 +2299,7 @@
+ 
+     int ret = 0;
+     if (!fdt_node_check_compatible(dt, 0, "apple,t8132"))
+-        return dt_set_t8132_dcp_handoff();
++        return dt_set_t8132_display();
+ 
+ 
+     if (!fdt_node_check_compatible(dt, 0, "apple,t8103")) {
