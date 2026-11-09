@@ -5,7 +5,7 @@
 # the debugfs SET_MODE/SET_SURFACE test, loads j713_extdrm.ko: a DRM/KMS driver (/dev/dri/cardN, connector DP-N) that Hyprland can use.
 #
 # Needs: FRESH BOOT (the dcpext0 firmware allows one connect per boot), the monitor already plugged into port 2 (atc0) at boot.
-# Run as root, by hand (sudo ~/Work/m4/dp-altmode/extdisplay-up.sh) or from j713-extdisplay.service.
+# Run as root, by hand (sudo <repo>/extdisplay-up.sh) or from j713-extdisplay.service.
 # Never rmmod j713_dcpext_probe2 / j713_dispfb / j713_pmcon. j713_extdrm itself can be rmmod'ed and re-insmod'ed.
 set -u
 H=$(dirname "$(realpath "$0")")
@@ -31,9 +31,10 @@ fi
 
 # the monitor must be there (tipd registers the partner a few seconds after boot)
 for i in $(seq 1 60); do [ -e /sys/class/typec/port2-partner ] && break; sleep 1; done
-[ -e /sys/class/typec/port2-partner ] || { say "nothing on port2 (plug the monitor into port 2 and reboot); stopping"; exit 0; }
+[ -e /sys/class/typec/port2-partner ] || { say "nothing on port2 (plug the monitor into port 2 and reboot); stopping"; echo "skipped: nothing on port2" > $STATE/last-result; exit 0; }
 say "port2 partner present: data=$(cat /sys/class/typec/port2/data_role) power=$(cat /sys/class/typec/port2/power_role)"
 
+rm -f $STATE/last-result    # never leave a previous boot's verdict around (extdrm-load.sh reads it)
 date '+%F %T started' > $STATE/attempt    # removed again on every clean exit below
 
 ins() { # insmod unless already loaded; ins <name> <path> [params]
@@ -94,6 +95,20 @@ if [ "${3:-0}" != 1 ] || [ "${4:-0}" -le 0 ]; then
 	fail "no sink / no timing list after connect (hpd_after='$HPD'); see fwlog-up.txt"
 fi
 say "   sink present, $4 timing modes, $5 colour modes"
+
+if [ "${EXTDISPLAY_LINK_ONLY:-0}" = 1 ]; then
+	# Boot-service mode (j713-extdisplay.service): the link is up and the sink + timing list are known. The DRM driver is loaded LATER
+	# by extdrm-load.sh (j713-extdrm.service) once the user's Hyprland runs, so Aquamarine HOT-ADDS card2, the path proven by hand.
+	# Loading it here would be too early: the sddm drop-in pins AQ_DRM_DEVICES=/dev/dri/card0 (Hyprland would never see card2),
+	# and the sddm greeter's own Hyprland (same pin) is running at this point.
+	for b in $D/fwbuf_*; do [ -e "$b" ] && cp "$b" $H/$(basename "$b")-up.bin; done
+	python3 -I $H/tools/oslogdec.py $H/fwbuf_1000664a000-up.bin > $H/fwlog-up.txt 2>&1 || true
+	echo "link-up: $4 timing modes, drm deferred to extdrm-load.sh" > $STATE/last-result
+	rm -f $STATE/attempt
+	chown "$(stat -c %U:%G $H)" $LOG $H/fwbuf_*-up.bin $H/fwlog-up.txt 2>/dev/null || true
+	say "== link up, DRM driver deferred (log $LOG)"
+	exit 0
+fi
 
 say "== DRM driver (j713_extdrm.ko)"
 TD=$(date '+%Y-%m-%d %H:%M:%S')

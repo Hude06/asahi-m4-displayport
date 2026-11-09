@@ -36,9 +36,29 @@ Apple source code. Treat each item as a lead to verify, not a specification.
    - **Crash:** when every output goes DPMS-off (the Omarchy lock screen blanks all monitors 5 s after locking), Aquamarine logs
      `Deinitializing secondary renderer ... no enabled outputs`; on wake it re-creates the renderer and Mesa segfaults in `eglCreateContext`
      (Hyprland 0.56.2), taking the whole session down. Workaround: blank every monitor except the external display (`omarchy/`). The
-     real fix is in Aquamarine/Mesa; the Mesa fault was not symbolised.
+     real fix is in Aquamarine/Mesa; the Mesa fault was not symbolised. With the workaround, a real lock and a real lid close both leave
+     the Dell lit and Hyprland alive.
+9. **Boot autostart needs two stages.** The DRM driver must be loaded after the user's Hyprland has done its first modeset, so that
+   Aquamarine hot-adds the device (before that, the display manager's `AQ_DRM_DEVICES` pin hides it, and the greeter's own Hyprland would
+   take it). A `.path` trigger on the user's runtime dir never fired, because `/run/user/<uid>` is a tmpfs mounted after the path unit
+   started watching; a service `WantedBy=user@<uid>.service` works. With a 1 s settle after the first modeset, Hyprland adopted the output
+   0.5 s after the module loaded. The link bring-up's fixed 10 s wait after `connect` is what gates the result when the user logs in fast
+   (the Dell lit about 14 s after login on the measured boot).
+10. **Replug at firmware level.** With the Dell up: `set_hpd(0)` (DPTX group 8 cmd 8) makes the firmware run a full, clean unplug (HPD removed,
+    display power off, link shut down, PMGR domains off; no fault once `PMC` is on) and `GET_HPD` then reports no sink. `set_hpd(1)` brings the
+    sink and its 49 timings back, but the firmware only logs `VideoInterface::Plug callback: AP not ready yet, mark hot-plug pending` and
+    leaves the link down (the same message appears after the boot-time connect). Replaying `SET_POWER 1`, `SET_MODE` (same timing and colour
+    as before) and `SET_SURFACE` (same buffer) restored the picture without a reboot or any compositor involvement; the link-training
+    calls (`GET_MAX_LINK_RATE`, `SET_LINK_RATE`, `SET_ACTIVE_LANE_COUNT`, drive settings) started 0.2 s after `SET_MODE`, 3 s after
+    `SET_POWER`, so retraining is triggered by `SET_MODE`. Not done: reacting to a typec partner disconnect, telling userspace (the DRM
+    driver has no connector polling or hotplug event), and whether the PHY/crossbar survive a real cable pull. Note that making Hyprland
+    drop and re-add the output may hit the renderer re-creation crash from item 8 (untested).
+11. **Suspend is not safe on this setup.** An `echo mem > /sys/power/state` with `pm_test=devices` and the Dell attached hard-hung the machine
+    (no kernel message, journal ends before the call). The same laptop has no qualified suspend path, so this says nothing specific about
+    the display driver; it is recorded so nobody repeats it (`test-pm-devices.sh` now refuses to run).
 
 ## Known gaps
 
-4K60 (needs HBR3 and DSC), TX drive settings and lane 1 PHY programming, hotplug, suspend/resume, EDID/monitor identity, HDCP (firmware
-reports `protectLinkGated 0xe00002c7`), audio, boot-time autostart, a persistent `PMC` fix (a device-tree consumer for the `pmc` power domain).
+4K60 (needs HBR3 and DSC), TX drive settings and lane 1 PHY programming, hotplug as a driver feature (item 10), suspend/resume (item 11),
+EDID/monitor identity, HDCP (firmware reports `protectLinkGated 0xe00002c7`), audio, a persistent `PMC` fix (a device-tree consumer for
+the `pmc` power domain; today `pmcon/` powers it on at every boot), and the one-connect-per-boot limit.

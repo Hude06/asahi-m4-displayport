@@ -1,0 +1,24 @@
+[Unit]
+Description=J713 USB-C external display: load the DRM driver into the running Hyprland session
+Documentation=https://github.com/Hude06/asahi-m4-displayport
+ConditionPathExists=/proc/device-tree/soc/dcpext@286e00000/omarchy,dcpext-firmware-reserved
+# the link half must be finished first (only matters if the user logs in while it is still running)
+After=j713-extdisplay.service
+# Started by the user's login (WantedBy=user@1000.service below), NOT by a .path unit: the first boot test (2026-11-08 17:06) showed
+# that j713-extdrm.path never fired. It was started at 17:06:35, before /run/user/1000 existed; user-runtime-dir@1000 then mounted a
+# tmpfs there (17:06:39), and Hyprland's log appeared inside it (17:06:40) without the path unit noticing.
+# This unit pulls itself in when user@1000.service starts; extdrm-load.sh then waits for Hyprland's first modeset.
+After=user@1000.service
+
+[Service]
+Type=oneshot
+# RemainAfterExit keeps this unit active, so a second start request (second login in one boot) is a no-op
+RemainAfterExit=yes
+ExecStart=@REPO@/extdrm-load.sh
+# waits inside the script: link <= 240 s, first modeset <= 120 s, adoption <= 20 s
+TimeoutStartSec=420
+SuccessExitStatus=0 1
+
+[Install]
+# uid 1000 is hardcoded (install-extdisplay.sh refuses otherwise)
+WantedBy=user@1000.service

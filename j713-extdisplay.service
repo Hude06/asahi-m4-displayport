@@ -1,14 +1,16 @@
 [Unit]
-Description=J713 USB-C external display bring-up (dcpext0 link + DRM driver)
+Description=J713 USB-C external display: bring up the dcpext0 link (the DRM driver is loaded later by j713-extdrm.service)
 Documentation=https://github.com/Hude06/asahi-m4-displayport
 # the dcpext0 firmware is reserved by m1n1 on the 'dcpext' stage2 boots only
 ConditionPathExists=/proc/device-tree/soc/dcpext@286e00000/omarchy,dcpext-firmware-reserved
-After=systemd-udevd.service systemd-modules-load.service local-fs.target sys-kernel-debug.mount
+After=systemd-udevd.service systemd-modules-load.service local-fs.target sys-kernel-debug.mount m4-gpu.service
 Wants=sys-kernel-debug.mount
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# stop before loading j713_extdrm.ko: it must be loaded after the user's Hyprland is up (see extdrm-load.sh)
+Environment=EXTDISPLAY_LINK_ONLY=1
 ExecStart=@REPO@/extdisplay-up.sh
 TimeoutStartSec=240
 # a failure must never block the boot

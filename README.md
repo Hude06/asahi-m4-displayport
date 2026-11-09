@@ -15,9 +15,11 @@ Research code: **USB-C DisplayPort alt-mode external display on the Apple M4 (T8
 | | |
 |---|---|
 | Works | One Dell U2723QE on USB-C port 2 as a normal Hyprland monitor: 2560x1440@60, RGB 8 bpc, HBR2 x2 lanes, from a fresh boot with the monitor already plugged in |
-| Does not work | 4K (needs HBR3 + DSC), hotplug/replug, suspend/resume, EDID (modes come from the display firmware's timing list), HDCP, audio, other ports/monitors |
-| Limits | The external-DCP firmware allows **one connect per boot**; the probe module cannot be removed; `j713_extdrm` can be reloaded |
-| Boot autostart | `j713-extdisplay.service` + `install-extdisplay.sh` exist but are untested at boot |
+| Boot autostart | Works: `install-extdisplay.sh` installs `j713-extdisplay.service` (link bring-up at boot) and `j713-extdrm.service` (loads the DRM driver once the user's Hyprland is up). Passed three reboots; the Dell lights about 14 s after login |
+| Lid close / lock screen | Works with the `omarchy/` workaround (only the internal panel is blanked; the Dell stays lit) |
+| Firmware-level replug | Works: `set_hpd(0)` then `set_hpd(1)` then `SET_POWER 1`, `SET_MODE`, `SET_SURFACE` brings the picture back without a reboot (`test-hpd-toggle.sh`, `test-hpd-recover.sh`; see [FINDINGS.md](FINDINGS.md)) |
+| Does not work | 4K (needs HBR3 + DSC), hotplug as a driver feature (no typec-disconnect handling, no hotplug event to userspace, a real cable pull is untested), suspend/resume (**an untested suspend path hard-hung the laptop; do not run `test-pm-devices.sh`**), EDID (modes come from the display firmware's timing list), HDCP, audio, other ports/monitors |
+| Limits | The external-DCP firmware allows **one connect per boot**; the probe module cannot be removed; `j713_extdrm` can be reloaded only while no compositor holds it |
 
 ## How it works (short)
 
@@ -43,8 +45,10 @@ Research code: **USB-C DisplayPort alt-mode external display on the Apple M4 (T8
 | `tipd-livepatch/` | livepatch for a tipd oops when reading partner identity |
 | `m1n1/` | m1n1 patches (firmware handoff, AUX SHM tunable) |
 | `omarchy/` | workaround for a Hyprland crash on screen-off/wake with the external display (lock-screen blank skips the external output) |
-| `tools/` | ADT / firmware-log decoders |
-| `test-*.sh`, `extdisplay-up.sh`, ... | the bring-up experiments, in the order they were run; the `test-*.sh` scripts are historical |
+| `tools/` | ADT / firmware-log decoders, a few kernel-object matching and IPSW range-fetch helpers |
+| `extdisplay-up.sh`, `extdrm-load.sh`, `install-extdisplay.sh`, `j713-*.service` | the boot autostart (stage 1: link; stage 2: DRM driver after login) |
+| `test-hpd-toggle.sh`, `test-hpd-recover.sh`, `test-watch.sh` | hotplug experiments at firmware level, and a passive watcher for the Dell during them |
+| other `test-*.sh` | the bring-up experiments, in the order they were run; historical. `test-pm-devices.sh` is disabled because it crashed the kernel |
 
 ## Build
 
